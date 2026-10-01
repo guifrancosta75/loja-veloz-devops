@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# O pipeline de CD executa `kustomize edit set image` com a tag sha-<commit> de cada imagem.
+# Usuário do GitHub: guifrancosta75.
+images:
+  - { name: loja-veloz/gateway,    newName: ghcr.io/guifrancosta75/loja-veloz-gateway,    newTag: latest }
+  - { name: loja-veloz/pedidos,    newName: ghcr.io/guifrancosta75/loja-veloz-pedidos,    newTag: latest }
+  - { name: loja-veloz/pagamentos, newName: ghcr.io/guifrancosta75/loja-veloz-pagamentos, newTag: latest }
+  - { name: loja-veloz/estoque,    newName: ghcr.io/guifrancosta75/loja-veloz-estoque,    newTag: latest }

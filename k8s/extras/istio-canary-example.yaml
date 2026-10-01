@@ -1,0 +1,29 @@
+# OPCIONAL / EVOLUÇÃO (não faz parte do kustomization): canary no serviço de pagamentos com Istio.
+# Pré-requisitos: Istio instalado, namespace com istio-injection=enabled e dois Deployments
+# (pagamentos-v1 e pagamentos-v2) com o label "version". 90% do tráfego vai para v1 e 10% para v2.
+# Promoção: alterar os pesos (10 -> 50 -> 100) observando erros/latência no Prometheus/Jaeger.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata: { name: pagamentos, namespace: loja-veloz }
+spec:
+  host: pagamentos
+  subsets:
+    - { name: v1, labels: { version: v1 } }
+    - { name: v2, labels: { version: v2 } }
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata: { name: pagamentos, namespace: loja-veloz }
+spec:
+  hosts: [pagamentos]
+  http:
+    - route:
+        - { destination: { host: pagamentos, subset: v1 }, weight: 90 }
+        - { destination: { host: pagamentos, subset: v2 }, weight: 10 }
+---
+# mTLS obrigatório entre os serviços da malha.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata: { name: default, namespace: loja-veloz }
+spec:
+  mtls: { mode: STRICT }

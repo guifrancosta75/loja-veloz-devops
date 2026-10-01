@@ -1,0 +1,35 @@
+# Requer o Prometheus Operator (helm install kube-prometheus-stack). Coleta /metrics dos 4 serviços.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: loja-veloz
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack }
+spec:
+  namespaceSelector: { matchNames: [loja-veloz] }
+  selector:
+    matchLabels: { app.kubernetes.io/part-of: loja-veloz }
+  endpoints:
+    - { port: http, path: /metrics, interval: 15s }
+---
+# Alertas baseados nos "golden signals" (erros e latência) e disponibilidade.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: loja-veloz-alerts
+  namespace: monitoring
+  labels: { release: kube-prometheus-stack }
+spec:
+  groups:
+    - name: loja-veloz
+      rules:
+        - alert: TaxaDeErros5xxAlta
+          expr: sum(rate(http_request_duration_seconds_count{status=~"5.."}[5m])) by (service) / sum(rate(http_request_duration_seconds_count[5m])) by (service) > 0.05
+          for: 5m
+          labels: { severity: critical }
+          annotations: { summary: "Mais de 5% de erros 5xx em {{ $labels.service }}" }
+        - alert: LatenciaP95Alta
+          expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)) > 1
+          for: 10m
+          labels: { severity: warning }
+          annotations: { summary: "p95 acima de 1s em {{ $labels.service }}" }

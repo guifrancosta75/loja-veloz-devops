@@ -1,0 +1,10 @@
+# Cluster local (kind/minikube): usa imagens construídas localmente (docker build + kind load).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - { name: loja-veloz/gateway,    newName: loja-veloz/gateway,    newTag: local }
+  - { name: loja-veloz/pedidos,    newName: loja-veloz/pedidos,    newTag: local }
+  - { name: loja-veloz/pagamentos, newName: loja-veloz/pagamentos, newTag: local }
+  - { name: loja-veloz/estoque,    newName: loja-veloz/estoque,    newTag: local }

@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: loja-veloz
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    # cert-manager.io/cluster-issuer: letsencrypt   # habilitar TLS em produção
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: loja-veloz.example.com      # ajustar para o domínio real
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: gateway, port: { name: http } } }

@@ -1,0 +1,89 @@
+# Coletor OpenTelemetry + Jaeger (all-in-one, armazenamento em memória: apenas MVP/demonstração).
+# Em produção: Jaeger/Tempo com storage persistente. Métricas: kube-prometheus-stack (ver servicemonitor.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: otel-collector-config, namespace: observability }
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          http: { endpoint: 0.0.0.0:4318 }
+    processors:
+      batch: {}
+      memory_limiter: { check_interval: 1s, limit_mib: 200 }
+    exporters:
+      otlp/jaeger:
+        endpoint: jaeger.observability.svc:4317
+        tls: { insecure: true }
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/jaeger]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: otel-collector, namespace: observability }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: otel-collector } }
+  template:
+    metadata: { labels: { app: otel-collector } }
+    spec:
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.104.0
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports: [{ containerPort: 4318 }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          volumeMounts: [{ name: config, mountPath: /etc/otelcol }]
+      volumes:
+        - name: config
+          configMap: { name: otel-collector-config }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: otel-collector, namespace: observability }
+spec:
+  selector: { app: otel-collector }
+  ports: [{ name: otlp-http, port: 4318 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: jaeger, namespace: observability }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: jaeger } }
+  template:
+    metadata: { labels: { app: jaeger } }
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.58
+          ports: [{ containerPort: 16686 }, { containerPort: 4317 }]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: jaeger, namespace: observability }
+spec:
+  selector: { app: jaeger }
+  ports:
+    - { name: ui, port: 16686 }
+    - { name: otlp-grpc, port: 4317 }

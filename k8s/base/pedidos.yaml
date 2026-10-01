@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pedidos
+  labels: &labels
+    app.kubernetes.io/name: pedidos
+    app.kubernetes.io/part-of: loja-veloz
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  progressDeadlineSeconds: 120
+  # Rolling update sem indisponibilidade: sobe 1 pod novo e só remove o antigo quando o novo estiver Ready.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pedidos
+  template:
+    metadata:
+      labels: *labels
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: pedidos
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: pedidos
+      containers:
+        - name: pedidos
+          image: loja-veloz/pedidos   # nome lógico; tag/registry definidos pelo overlay (kustomize images)
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - configMapRef: { name: loja-veloz-config }
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: pedidos
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: loja-veloz-secrets, key: DATABASE_URL }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              exec: { command: ["sleep", "5"] }   # dá tempo do Service/Ingress remover o pod antes do SIGTERM
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pedidos
+  labels:
+    app.kubernetes.io/name: pedidos
+    app.kubernetes.io/part-of: loja-veloz
+spec:
+  selector:
+    app.kubernetes.io/name: pedidos
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pedidos
+automountServiceAccountToken: false
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pedidos
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pedidos
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pedidos
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: pedidos }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{ type: Percent, value: 100, periodSeconds: 30 }]   # reage rápido a picos
+    scaleDown:
+      stabilizationWindowSeconds: 300                                  # evita "flapping"
