@@ -97,7 +97,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
       - name: Scan de vulnerabilidades (Trivy) - falha em CRITICAL com correção disponível
-        uses:  aquasecurity/trivy-action@v0.35.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: scan:${{ matrix.service }}
           severity: CRITICAL
@@ -126,7 +126,8 @@ jobs:
 
   # 4) Deploy em produção (somente main; "environment" permite exigir aprovação manual)
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Só roda com cluster configurado: Settings > Variables > DEPLOY_ENABLED=true (sem isso, o job é pulado)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     needs: build-push
     runs-on: ubuntu-latest
     environment: production
